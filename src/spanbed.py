@@ -8,7 +8,7 @@ import itertools
 import sys
 import argparse
 import csv
-from typing import Iterable
+from typing import Iterable, Callable, List
 
 
 """
@@ -26,9 +26,12 @@ Will use SpanBERT by default, though note that it is designed for subsentential 
 
 def main():
     args = parse_args()
+
     writer = csv.writer(sys.stdout)
-    model = make_contextualized_sentence_transformer(args.model, args.hidden)
     reader = bracketed_reader(args.spans) if args.brackets else csv_reader(args.spans)
+
+    model = make_contextualized_sentence_transformer(args.model, args.hidden)
+
     for spans in batched(reader, 10000):   # large 'batch', to interfere with transformers' batching as little as possible
         embs = model(spans)
         for emb in embs:
@@ -51,7 +54,7 @@ def csv_reader(lines):
         yield d
 
 
-def make_contextualized_sentence_transformer(model_name, hidden_states_to_use):
+def make_contextualized_sentence_transformer(model_name: str, hidden_states_to_use: List[int]) -> Callable:
     # tokenizer = RobertaTokenizerFast.from_pretrained(model_name)
     # model = RobertaModel.from_pretrained(model_name)
 
@@ -93,7 +96,7 @@ def make_contextualized_sentence_transformer(model_name, hidden_states_to_use):
 def parse_args():
     parser = argparse.ArgumentParser(description='Script to compute embedding of a span with other text as context.')
     parser.add_argument('spans', nargs='?', type=argparse.FileType('r'), default=sys.stdin, help='File containing csv-triples of text,start,stop (or with --brackets: lines like "bla bla [bla bla bla] bla bla"), default stdin. Start and stop must be character offsets.')
-    parser.add_argument('--brackets', action='store_true', help='To input triples as "blablabla [bla bla] bla blabla" instead of csv.')
+    parser.add_argument('--brackets', action='store_true', help='To input spans as "blablabla [bla bla] bla blabla" instead of csv.')
     parser.add_argument('--model', type=str, default='SpanBERT/spanbert-large-cased', help='Embedding model to use; default SpanBERT.')
     parser.add_argument('--hidden', type=str, default='-1', help='Which hidden states to use (comma-separated ints)')
     args = parser.parse_args()
