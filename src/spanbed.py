@@ -23,7 +23,6 @@ Input is a csv of triples sentence,start,stop, or (with --bracket) lines like "t
 Will use SpanBERT by default, though note that it is designed for subsentential (<10 words) spans. A solid alternative might be roberta-base, or the original Bert.
 """
 
-
 def main():
     args = parse_args()
 
@@ -32,10 +31,26 @@ def main():
 
     model = make_contextualized_sentence_transformer(args.model, args.hidden)
 
-    for spans in batched(reader, 10000):   # large 'batch', to interfere with transformers' batching as little as possible
+    for spans in batched(reader, args.batchsize):  # Batched because it's a custom model, bypassing transformers auto-batching.
         embs = model(spans)
         for emb in embs:
             writer.writerow(emb.tolist())
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Script to compute embedding of a span with other text as context.')
+    parser.add_argument('spans', nargs='?', type=argparse.FileType('r'), default=sys.stdin, help='File containing csv-triples of text,start,stop (or with --brackets: lines like "bla bla [bla bla bla] bla bla"), default stdin. Start and stop must be character offsets.')
+    parser.add_argument('--brackets', action='store_true', help='To input spans as "blablabla [bla bla] bla blabla" instead of csv.')
+    parser.add_argument('--model', type=str, default='SpanBERT/spanbert-large-cased', help='Embedding model to use; default SpanBERT.')
+    parser.add_argument('--hidden', type=str, default='-1', help='Which hidden states to use (comma-separated ints)')
+    parser.add_argument('--batchsize', type=int, default=1000, help='How many inputs to process at a time.')
+    args = parser.parse_args()
+
+    if args.spans == '-':
+        args.spans = sys.stdin
+    args.hidden = map(int, args.hidden.split(','))
+
+    return args
 
 
 def bracketed_reader(lines):
@@ -92,20 +107,6 @@ def make_contextualized_sentence_transformer(model_name: str, hidden_states_to_u
         return span_embeddings
 
     return contextualized_sentence_transformer
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Script to compute embedding of a span with other text as context.')
-    parser.add_argument('spans', nargs='?', type=argparse.FileType('r'), default=sys.stdin, help='File containing csv-triples of text,start,stop (or with --brackets: lines like "bla bla [bla bla bla] bla bla"), default stdin. Start and stop must be character offsets.')
-    parser.add_argument('--brackets', action='store_true', help='To input spans as "blablabla [bla bla] bla blabla" instead of csv.')
-    parser.add_argument('--model', type=str, default='SpanBERT/spanbert-large-cased', help='Embedding model to use; default SpanBERT.')
-    parser.add_argument('--hidden', type=str, default='-1', help='Which hidden states to use (comma-separated ints)')
-    args = parser.parse_args()
-
-    if args.spans == '-':
-        args.spans = sys.stdin
-    args.hidden = map(int, args.hidden.split(','))
-
-    return args
 
 
 # Included here, since only available in Python 3.12...
