@@ -46,3 +46,9 @@ Or using a different, bracketed span notation:
 ```bash
 $ echo "This is an [interesting sentence] is it not" | spanbed --hidden -2,-1 --brackets
 ```
+
+Optionally a comparison sentence can be given, in which case `spanbed` outputs the cosine similarity scores of each of the input sentences to this comparison sentence.
+
+```bash
+$ echo "This is an [interesting sentence] is it not" | spanbed --brackets --comparison "This is a [boring sentence] is it not?"
+```

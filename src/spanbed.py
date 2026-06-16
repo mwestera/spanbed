@@ -10,9 +10,11 @@ import argparse
 import csv
 from typing import Iterable, Callable, List
 
+from torch.nn.functional import cosine_similarity
 
 """
-A CLI wrapper around transformers to compute contextualized span embeddings for lines in input, yielding .csv output.
+A CLI wrapper around transformers to compute contextualized span embeddings for lines in input, yielding the vectors (one vector for each line of input) as .csv output.
+If another span is provided with --comparison, will output embedding similarities instead, again one per input. 
 
 A 'contextualized span embedding' is the embedding of a given span of text, but crucially as processed by a model 
 that also saw some surrounding text. Concretely, it computes token embeddings for the full text, then averages 
@@ -27,14 +29,23 @@ def main():
     args = parse_args()
 
     writer = csv.writer(sys.stdout)
-    reader = bracketed_reader(args.spans) if args.brackets else csv_reader(args.spans)
+    reader = bracketed_reader if args.brackets else csv_reader
 
     model = make_contextualized_sentence_transformer(args.model, args.hidden)
 
-    for spans in batched(reader, args.batchsize):  # Batched because it's a custom model, bypassing transformers auto-batching.
+    comparison_emb = None
+    if args.comparison:
+        if '[' not in args.comparison and ']' not in args.comparison:
+            args.comparison = f'[{args.comparison}]'
+        comparison_emb = model(list(reader([args.comparison])))[0] if args.comparison else None
+
+    for spans in batched(reader(args.spans), args.batchsize):  # Batched because it's a custom model, bypassing transformers auto-batching.
         embs = model(spans)
         for emb in embs:
-            writer.writerow(emb.tolist())
+            if args.comparison:
+                print(cosine_similarity(emb, comparison_emb, dim=0).item())
+            else:
+                writer.writerow(emb.tolist())
 
 
 def parse_args():
@@ -44,11 +55,12 @@ def parse_args():
     parser.add_argument('--model', type=str, default='SpanBERT/spanbert-large-cased', help='Embedding model to use; default SpanBERT.')
     parser.add_argument('--hidden', type=str, default='-1', help='Which hidden states to use (comma-separated ints)')
     parser.add_argument('--batchsize', type=int, default=1000, help='How many inputs to process at a time.')
+    parser.add_argument('--comparison', type=str, default=None, help='Sentence with span (same format: csv or brackets) to compare input spans to; if given, will print similarity score, not embeddings.')
     args = parser.parse_args()
 
     if args.spans == '-':
         args.spans = sys.stdin
-    args.hidden = map(int, args.hidden.split(','))
+    args.hidden = [int(x) for x in args.hidden.split(',')]
 
     return args
 
@@ -57,7 +69,7 @@ def bracketed_reader(lines):
     for line in lines:
         line = line.strip()
         start = line.index('[')
-        end = line.index(']') - 1
+        end = line.rindex(']') - 1
         text = line.replace('[', '').replace(']', '')
         yield {'text': text, 'start': start, 'end': end}
 
@@ -80,9 +92,8 @@ def make_contextualized_sentence_transformer(model_name: str, hidden_states_to_u
         """
         As input, takes an iterable of dictionaries, each with keys 'text', 'start', and 'end'.
         """
-        texts = [t['text'] for t in spans]
-        starts = [t['start'] for t in spans]
-        ends = [t['end'] for t in spans]
+        texts, starts, ends = zip(*((t['text'], t['start'], t['end']) for t in spans))
+
         encoded_input = tokenizer(texts, return_tensors='pt', return_offsets_mapping=True, padding=True)
 
         # mask any tokens outside the span
